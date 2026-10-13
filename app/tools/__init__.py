@@ -1,2 +1,2 @@
-"""Controlled tool contracts and registry."""
+"""Controlled tool contracts, registry, and executor."""
 

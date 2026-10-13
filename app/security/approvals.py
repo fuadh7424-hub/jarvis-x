@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -22,6 +23,8 @@ class ApprovalRequest(BaseModel):
     reason: str
     requested_by: str
     risk_level: PermissionLevel
+    tool_name: str | None = None
+    input_data: dict[str, Any] | None = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: ApprovalStatus = ApprovalStatus.PENDING
 
@@ -51,3 +54,9 @@ class ApprovalManager:
             raise ValueError("Approval request is already resolved")
         request.status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
         return request
+
+    def get(self, request_id: UUID) -> ApprovalRequest:
+        return self._requests[request_id]
+
+    def list(self) -> tuple[ApprovalRequest, ...]:
+        return tuple(self._requests.values())
