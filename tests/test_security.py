@@ -1,7 +1,7 @@
 import json
 
 from app.core.logging import configure_logging, log_audit_event
-from app.security.approvals import ApprovalManager, ApprovalRequest, ApprovalStatus, AuditEvent
+from app.security.approvals import ApprovalRequest, ApprovalStatus, AuditEvent
 from app.security.permissions import PermissionLevel, PermissionPolicy
 
 
@@ -15,10 +15,10 @@ def test_blocked_action_behavior():
     assert not PermissionPolicy.allows(PermissionLevel.BLOCKED, approved=True)
 
 
-def test_approval_workflow():
-    manager = ApprovalManager()
-    request = manager.request(ApprovalRequest(action="write", reason="test", requested_by="agent", risk_level=PermissionLevel.CONFIRM))
-    assert manager.resolve(request.id, approved=True).status is ApprovalStatus.APPROVED
+def test_approval_lifecycle_contract():
+    request = ApprovalRequest(action="execute", reason="test", requested_by="agent", risk_level=PermissionLevel.CONFIRM)
+    assert request.status is ApprovalStatus.PENDING
+    assert ApprovalStatus.CONSUMED.value == "consumed"
 
 
 def test_audit_event_contract():

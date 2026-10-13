@@ -1,17 +1,18 @@
 # JARVIS-X
 
-Local-first personal AI assistant for Windows. This repository implements **Phase 1 only**: a secure, typed application foundation.
+Local-first personal AI assistant for Windows. This repository implements Phase 3: a secure, typed foundation with durable local approvals and audit records.
 
 ## Architecture
 
 - `app/core`: environment-driven settings and JSON structured logging.
 - `app/agent`: state and a deliberately inert planning boundary.
 - `app/tools`: typed tool contract and allow-listed registry.
-- `app/security`: explicit `SAFE`, `CONFIRM`, and `BLOCKED` policy, transient approvals, and audit-event schema.
+- `app/security`: explicit `SAFE`, `CONFIRM`, and `BLOCKED` policy, approval lifecycle models, and an authorization boundary for future authentication.
+- `app/storage`: local SQLite repository for durable, append-only audit events and one-time approvals.
 - `app/memory`: non-persistent memory protocol and in-memory reference implementation.
-- `app/api`: FastAPI health endpoint.
+- `app/api`: health, approval, controlled-execution, and read-only audit inspection endpoints.
 
-Voice, browser automation, desktop automation, shell access, and persistent memory are explicitly out of scope.
+Voice, browser automation, desktop automation, shell access, persistent memory, and LLM integration are explicitly out of scope.
 
 ## Run
 
@@ -24,6 +25,12 @@ uvicorn main:app --reload
 
 Visit `http://127.0.0.1:8000/health` for `{ "status": "ok", "service": "jarvis-x" }`.
 
+## Local storage
+
+SQLite is configured through `JARVIS_DATABASE_PATH` (default: `data/jarvis-x.sqlite3`). Relative paths may not use parent traversal. The application creates the parent directory and schema safely at startup. `JARVIS_APPROVAL_TTL_SECONDS` controls approval expiration (default: 300 seconds).
+
+Approval records retain an input digest rather than the submitted input. Audit events retain only event categories and safe identifiers; they intentionally exclude tool inputs, reasons, actor identity, and exception text.
+
 ## Test
 
 ```powershell
@@ -32,8 +39,10 @@ pytest
 
 ## Security decisions
 
-Tools are only addressable after registration. Each declares its input model and permission level. `BLOCKED` cannot be authorized; `CONFIRM` must receive an explicit approval before a later executor can act. Phase 1 contains no system-operation tools, therefore the agent has no shell, browser, desktop, mouse, keyboard, or voice control.
+Tools are only addressable after registration. Each declares its input model and permission level. `BLOCKED` cannot be authorized; `CONFIRM` must receive a matching, unexpired approval before the executor atomically consumes it. A consumed approval cannot be replayed.
 
-## Phase 2 recommendation
+The current HTTP API is local/development-oriented and has no authentication. It uses an explicit authorization-context boundary so authentication can be added without changing the executor. An approval ID alone is not authorization; deployment must restrict API access until authentication is added.
 
-Add a user-visible approval UI and an audited executor that validates registered tool inputs before introducing one narrowly-scoped, read-only capability.
+## Phase 4 recommendation
+
+Add authenticated identity and role assignment at the API boundary before adding any additional capabilities.

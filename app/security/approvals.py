@@ -15,6 +15,8 @@ class ApprovalStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+    EXPIRED = "expired"
+    CONSUMED = "consumed"
 
 
 class ApprovalRequest(BaseModel):
@@ -24,39 +26,25 @@ class ApprovalRequest(BaseModel):
     requested_by: str
     risk_level: PermissionLevel
     tool_name: str | None = None
+    input_digest: str | None = None
     input_data: dict[str, Any] | None = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: ApprovalStatus = ApprovalStatus.PENDING
+    resolved_at: datetime | None = None
+    expires_at: datetime | None = None
+    consumed_at: datetime | None = None
+    resolution: str | None = None
 
 
 class AuditEvent(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    event_type: str = "audit"
     tool: str
     action: str
     permission_level: PermissionLevel
+    approval_id: UUID | None = None
     approval_status: ApprovalStatus | None = None
     result: str | None = None
     error: str | None = None
-
-
-class ApprovalManager:
-    """Transient approval store. Persistence is intentionally deferred."""
-    def __init__(self) -> None:
-        self._requests: dict[UUID, ApprovalRequest] = {}
-
-    def request(self, request: ApprovalRequest) -> ApprovalRequest:
-        self._requests[request.id] = request
-        return request
-
-    def resolve(self, request_id: UUID, approved: bool) -> ApprovalRequest:
-        request = self._requests[request_id]
-        if request.status is not ApprovalStatus.PENDING:
-            raise ValueError("Approval request is already resolved")
-        request.status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
-        return request
-
-    def get(self, request_id: UUID) -> ApprovalRequest:
-        return self._requests[request_id]
-
-    def list(self) -> tuple[ApprovalRequest, ...]:
-        return tuple(self._requests.values())
+    metadata: dict[str, str] = Field(default_factory=dict)
