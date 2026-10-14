@@ -1,11 +1,20 @@
 """Environment-based application configuration."""
 from __future__ import annotations
 
+import json
 import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
+
+from app.security.access import Role
+
+
+class AuthTokenConfig(BaseModel):
+    subject: str = Field(min_length=1, max_length=100)
+    role: Role
+    token: SecretStr = Field(min_length=16)
 
 
 class Settings(BaseModel):
@@ -16,6 +25,7 @@ class Settings(BaseModel):
     log_dir: Path = Field(default=Path("logs"))
     database_path: Path = Field(default=Path("data/jarvis-x.sqlite3"))
     approval_ttl_seconds: int = Field(default=300, ge=1, le=86_400)
+    auth_tokens: tuple[AuthTokenConfig, ...] = ()
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -25,6 +35,7 @@ class Settings(BaseModel):
             log_dir=Path(os.getenv("JARVIS_LOG_DIR", "logs")),
             database_path=_database_path(os.getenv("JARVIS_DATABASE_PATH", "data/jarvis-x.sqlite3")),
             approval_ttl_seconds=int(os.getenv("JARVIS_APPROVAL_TTL_SECONDS", "300")),
+            auth_tokens=tuple(AuthTokenConfig.model_validate(item) for item in json.loads(os.getenv("JARVIS_AUTH_TOKENS", "[]"))),
         )
 
 

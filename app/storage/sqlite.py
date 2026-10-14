@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
+from app.agent.state import AgentState, AgentStatus
 from app.security.approvals import ApprovalRequest, ApprovalStatus, AuditEvent
 from app.security.permissions import PermissionLevel
 
@@ -32,6 +33,7 @@ class SQLiteRepository:
 
     def initialize(self) -> None:
         with self._connect() as connection:
+            connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY);
@@ -64,8 +66,24 @@ class SQLiteRepository:
                     error_category TEXT,
                     metadata_json TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS agent_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    goal TEXT,
+                    action TEXT,
+                    tool_name TEXT,
+                    input_digest TEXT,
+                    approval_id TEXT,
+                    result_json TEXT,
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL
+                );
                 CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
                 CREATE INDEX IF NOT EXISTS idx_audit_events_timestamp ON audit_events(timestamp);
+                CREATE INDEX IF NOT EXISTS idx_agent_sessions_status ON agent_sessions(status);
                 """
             )
 
@@ -160,3 +178,73 @@ class SQLiteRepository:
         with self._connect() as connection:
             rows = connection.execute("SELECT * FROM audit_events ORDER BY timestamp DESC LIMIT ?", (limit,)).fetchall()
         return tuple(AuditEvent(id=UUID(row["event_id"]), timestamp=self._parse(row["timestamp"]), event_type=row["event_type"], tool=row["tool"], action=row["action"], permission_level=PermissionLevel(row["permission_level"]), approval_id=UUID(row["approval_id"]) if row["approval_id"] else None, approval_status=ApprovalStatus(row["approval_status"]) if row["approval_status"] else None, result=row["outcome"], error=row["error_category"], metadata=json.loads(row["metadata_json"])) for row in rows)
+
+    def _session(self, row: sqlite3.Row) -> AgentState:
+        return AgentState(
+            session_id=UUID(row["session_id"]),
+            task_id=UUID(row["task_id"]),
+            status=AgentStatus(row["status"]),
+            goal=row["goal"],
+            action=row["action"],
+            tool_name=row["tool_name"],
+            input_digest=row["input_digest"],
+            approval_id=UUID(row["approval_id"]) if row["approval_id"] else None,
+            result=json.loads(row["result_json"]) if row["result_json"] else None,
+            error=row["error"],
+            created_at=self._parse(row["created_at"]),
+            updated_at=self._parse(row["updated_at"]),
+            metadata=json.loads(row["metadata_json"]),
+        )
+
+    def save_session(self, state: AgentState) -> AgentState:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO agent_sessions (
+                    session_id, task_id, status, goal, action, tool_name,
+                    input_digest, approval_id, result_json, error,
+                    created_at, updated_at, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    task_id=excluded.task_id,
+                    status=excluded.status,
+                    goal=excluded.goal,
+                    action=excluded.action,
+                    tool_name=excluded.tool_name,
+                    input_digest=excluded.input_digest,
+                    approval_id=excluded.approval_id,
+                    result_json=excluded.result_json,
+                    error=excluded.error,
+                    updated_at=excluded.updated_at,
+                    metadata_json=excluded.metadata_json
+                """,
+                (
+                    str(state.session_id),
+                    str(state.task_id),
+                    state.status.value,
+                    state.goal,
+                    state.action,
+                    state.tool_name,
+                    state.input_digest,
+                    str(state.approval_id) if state.approval_id else None,
+                    json.dumps(state.result) if state.result is not None else None,
+                    state.error,
+                    self._time(state.created_at),
+                    self._time(state.updated_at),
+                    json.dumps(state.metadata, sort_keys=True),
+                ),
+            )
+        return state
+
+    def get_session(self, session_id: UUID) -> AgentState:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM agent_sessions WHERE session_id = ?", (str(session_id),)).fetchone()
+        if row is None:
+            raise KeyError(session_id)
+        return self._session(row)
+
+    def list_sessions(self, limit: int = 100) -> tuple[AgentState, ...]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM agent_sessions ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall()
+        return tuple(self._session(row) for row in rows)
+

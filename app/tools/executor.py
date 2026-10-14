@@ -56,11 +56,15 @@ class Executor:
         canonical = json.dumps(input_data.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-    def _audit(self, tool: str, action: str, level: PermissionLevel, *, event_type: str, approval_id: UUID | None = None, approval_status: ApprovalStatus | None = None, result: str | None = None, error: str | None = None) -> None:
+    def _audit(self, tool: str, action: str, level: PermissionLevel, *, event_type: str, approval_id: UUID | None = None, approval_status: ApprovalStatus | None = None, result: str | None = None, error: str | None = None, metadata: dict[str, str] | None = None) -> None:
         # Inputs, reasons, actor identity, and exception text are deliberately excluded.
-        event = AuditEvent(tool=tool, action=action, permission_level=level, event_type=event_type, approval_id=approval_id, approval_status=approval_status, result=result, error=error)
+        event = AuditEvent(tool=tool, action=action, permission_level=level, event_type=event_type, approval_id=approval_id, approval_status=approval_status, result=result, error=error, metadata=metadata or {})
         self.repository.append_audit_event(event)
         self.audit_sink(event)
+
+    def audit_security_event(self, event_type: str, decision: str, *, subject: str | None = None, role: str | None = None) -> None:
+        metadata = {key: value for key, value in {"subject": subject, "role": role}.items() if value}
+        self._audit("api", "security", PermissionLevel.SAFE, event_type=event_type, result=decision, metadata=metadata)
 
     def _tool(self, tool_name: str):
         try:
@@ -80,19 +84,19 @@ class Executor:
         self._audit(tool.name, "execute", tool.permission_level, event_type="validation_succeeded", result="valid")
         return input_data
 
-    def create_approval(self, tool_name: str, raw_input: dict[str, Any], reason: str, requested_by: str, context: AuthorizationContext | None = None) -> ApprovalRequest:
+    def create_approval(self, tool_name: str, raw_input: dict[str, Any], reason: str, requested_by: str, context: AuthorizationContext | None = None, metadata: dict[str, str] | None = None) -> ApprovalRequest:
         AuthorizationPolicy.require_request(context or AuthorizationContext(requested_by))
         tool = self._tool(tool_name)
         input_data = self._validated_input(tool, raw_input)
         if tool.permission_level is PermissionLevel.BLOCKED:
-            self._audit(tool.name, "approval_request", tool.permission_level, event_type="blocked_action", error="blocked")
+            self._audit(tool.name, "approval_request", tool.permission_level, event_type="blocked_action", error="blocked", metadata=metadata)
             raise BlockedActionError("Blocked actions cannot be approved")
         if not PermissionPolicy.requires_approval(tool.permission_level):
             raise ExecutionError("Approval is only available for CONFIRM-level actions")
         timestamp = self.now()
         request = ApprovalRequest(action="execute", reason="Approval requested", requested_by=(context.actor_id if context else requested_by), risk_level=tool.permission_level, tool_name=tool.name, input_digest=self._input_digest(input_data), timestamp=timestamp, expires_at=timestamp + self.approval_ttl)
         self.repository.create_approval(request)
-        self._audit(tool.name, "approval_request", tool.permission_level, event_type="approval_created", approval_id=request.id, approval_status=request.status, result="pending")
+        self._audit(tool.name, "approval_request", tool.permission_level, event_type="approval_created", approval_id=request.id, approval_status=request.status, result="pending", metadata=metadata)
         return request
 
     def resolve_approval(self, request_id: UUID, approved: bool, context: AuthorizationContext | None = None) -> ApprovalRequest:
@@ -108,27 +112,27 @@ class Executor:
         self._audit(request.tool_name or "approval", "approval_resolution", request.risk_level, event_type="approval_resolved", approval_id=request.id, approval_status=request.status, result=request.status.value)
         return request
 
-    async def execute(self, tool_name: str, raw_input: dict[str, Any], approval_id: UUID | None = None, context: AuthorizationContext | None = None) -> dict[str, object]:
+    async def execute(self, tool_name: str, raw_input: dict[str, Any], approval_id: UUID | None = None, context: AuthorizationContext | None = None, metadata: dict[str, str] | None = None) -> dict[str, object]:
         AuthorizationPolicy.require_execution(context or AuthorizationContext("local"))
         tool = self._tool(tool_name)
         input_data = self._validated_input(tool, raw_input)
-        self._audit(tool.name, "execute", tool.permission_level, event_type="permission_decision", result="allowed" if tool.permission_level is PermissionLevel.SAFE else "approval_required")
+        self._audit(tool.name, "execute", tool.permission_level, event_type="permission_decision", result="allowed" if tool.permission_level is PermissionLevel.SAFE else "approval_required", metadata=metadata)
         if tool.permission_level is PermissionLevel.BLOCKED:
-            self._audit(tool.name, "execute", tool.permission_level, event_type="blocked_action", error="blocked")
+            self._audit(tool.name, "execute", tool.permission_level, event_type="blocked_action", error="blocked", metadata=metadata)
             raise BlockedActionError("This action is blocked by policy")
         if tool.permission_level is PermissionLevel.CONFIRM:
             if approval_id is None:
-                self._audit(tool.name, "execute", tool.permission_level, event_type="approval_required", error="approval_required")
+                self._audit(tool.name, "execute", tool.permission_level, event_type="approval_required", error="approval_required", metadata=metadata)
                 raise ApprovalRequiredError("Explicit approval is required")
             try:
                 approval = self.repository.consume(approval_id, tool.name, self._input_digest(input_data), self.now())
             except KeyError as exc:
-                self._audit(tool.name, "execute", tool.permission_level, event_type="approval_required", approval_id=approval_id, error="unknown_approval")
+                self._audit(tool.name, "execute", tool.permission_level, event_type="approval_required", approval_id=approval_id, error="unknown_approval", metadata=metadata)
                 raise ApprovalRequiredError("Approval request was not found") from exc
             except ApprovalStateError as exc:
                 message = str(exc)
                 error = "approval_mismatch" if "match" in message else "approval_invalid"
-                self._audit(tool.name, "execute", tool.permission_level, event_type="approval_consumption_failed", approval_id=approval_id, error=error)
+                self._audit(tool.name, "execute", tool.permission_level, event_type="approval_consumption_failed", approval_id=approval_id, error=error, metadata=metadata)
                 if "rejected" in message:
                     raise ApprovalRejectedError("Approval was rejected") from exc
                 if "consumed" in message:
@@ -139,14 +143,14 @@ class Executor:
                     raise ApprovalMismatchError("Approval does not match this action") from exc
                 raise ApprovalRequiredError("Approval is not available") from exc
             if approval.status is ApprovalStatus.EXPIRED:
-                self._audit(tool.name, "execute", tool.permission_level, event_type="approval_consumption_failed", approval_id=approval.id, approval_status=approval.status, error="expired")
+                self._audit(tool.name, "execute", tool.permission_level, event_type="approval_consumption_failed", approval_id=approval.id, approval_status=approval.status, error="expired", metadata=metadata)
                 raise ApprovalExpiredError("Approval has expired")
-            self._audit(tool.name, "execute", tool.permission_level, event_type="approval_consumed", approval_id=approval.id, approval_status=approval.status, result="consumed")
-        self._audit(tool.name, "execute", tool.permission_level, event_type="execution_started", approval_id=approval_id, result="started")
+            self._audit(tool.name, "execute", tool.permission_level, event_type="approval_consumed", approval_id=approval.id, approval_status=approval.status, result="consumed", metadata=metadata)
+        self._audit(tool.name, "execute", tool.permission_level, event_type="execution_started", approval_id=approval_id, result="started", metadata=metadata)
         try:
             result = await tool.execute(input_data)
         except Exception as exc:
-            self._audit(tool.name, "execute", tool.permission_level, event_type="execution_failed", approval_id=approval_id, error="execution_failed")
+            self._audit(tool.name, "execute", tool.permission_level, event_type="execution_failed", approval_id=approval_id, error="execution_failed", metadata=metadata)
             raise ToolExecutionError("Tool execution failed") from exc
-        self._audit(tool.name, "execute", tool.permission_level, event_type="execution_succeeded", approval_id=approval_id, result="success")
+        self._audit(tool.name, "execute", tool.permission_level, event_type="execution_succeeded", approval_id=approval_id, result="success", metadata=metadata)
         return result
