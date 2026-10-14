@@ -16,6 +16,12 @@ from app.tools.browser_page_metadata import PageMetadataTool
 from app.tools.browser_status import BrowserStatusTool
 from app.tools.browser_tabs import BrowserTabsTool
 from app.tools.browser_type import BrowserTypeTool
+from app.tools.desktop_active_window import DesktopActiveWindowTool
+from app.tools.desktop_displays import DesktopDisplaysTool
+from app.tools.desktop_window_focus import DesktopWindowFocusTool
+from app.tools.desktop_window_move_resize import DesktopWindowMoveResizeTool
+from app.tools.desktop_window_state import DesktopWindowStateTool
+from app.tools.desktop_windows import DesktopWindowsTool
 from app.tools.executor import Executor
 from app.tools.process_list import ProcessListTool
 from app.tools.registry import ToolRegistry
@@ -28,7 +34,7 @@ from app.tools.text_statistics import TextStatisticsTool
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.log_dir, settings.log_level)
-    app = FastAPI(title="JARVIS-X", version="0.8.0")
+    app = FastAPI(title="JARVIS-X", version="0.10.0")
     registry = ToolRegistry()
     registry.register(TextStatisticsTool())
     registry.register(SystemInfoTool())
@@ -44,6 +50,12 @@ def create_app() -> FastAPI:
     registry.register(BrowserClickTool())
     registry.register(BrowserTypeTool())
     registry.register(BrowserNewTabTool())
+    registry.register(DesktopWindowsTool())
+    registry.register(DesktopActiveWindowTool())
+    registry.register(DesktopDisplaysTool())
+    registry.register(DesktopWindowFocusTool())
+    registry.register(DesktopWindowStateTool())
+    registry.register(DesktopWindowMoveResizeTool())
     app.state.executor = Executor(registry, SQLiteRepository(settings.database_path), approval_ttl_seconds=settings.approval_ttl_seconds)
     app.state.authenticator = BearerTokenAuthenticator(settings.auth_tokens)
     app.state.agent = Agent(app.state.executor)
