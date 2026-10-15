@@ -5,4 +5,5 @@ __pycache__/
 .coverage
 logs/*.log
 data/*.db
+data/*.sqlite3
 .pytest-temp/

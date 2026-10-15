@@ -1,14 +1,15 @@
 # JARVIS-X
 
-Local-first personal AI assistant for Windows. Current status: Phase 10A (Controlled Window State & Layout Management) with durable local approvals, role-based API security, sandboxed system inspection, read-only browser state awareness, controlled browser actions, read-only desktop awareness, and controlled, approval-gated window layout and state management.
+Local-first personal AI assistant for Windows. Current status: Phase 10B (Controlled Mouse, Keyboard & Safe Hotkey Input) with durable local approvals, role-based API security, sandboxed system inspection, read-only browser state awareness, controlled browser actions, read-only desktop awareness, controlled window layout and state management, and permission-gated, validated computer input actions.
 
 ## Architecture
 
 - `app/core`: environment-driven settings and JSON structured logging.
 - `app/agent`: 9-state session state machine, planner boundary, and executor-orchestrated agent loop.
-- `app/tools`: typed tool contracts, allow-listed registry, read-only awareness tools, approval-gated browser action tools, and approval-gated window action tools.
+- `app/tools`: typed tool contracts, allow-listed registry, read-only awareness tools, approval-gated browser action tools, approval-gated window action tools, and approval-gated desktop input tools.
 - `app/browser`: read-only browser inspector and controlled action controller supporting local CDP endpoints, deterministic DOM target validation, sensitive input blocking, and URL sanitization.
-- `app/desktop`: read-only desktop inspector (window enumeration, active focus detection, display geometry, title sanitization) and controlled desktop action controller (window focus, state transitions, geometry bounds clamping).
+- `app/desktop`: read-only desktop inspector (window enumeration, active focus detection, display geometry, title sanitization), controlled desktop action controller (window focus, state transitions, geometry bounds clamping), and controlled desktop input controller (safe mouse movement, clicking, text entry, and hotkey injection).
+
 - `app/security`: default-deny `SAFE`, `CONFIRM`, and `BLOCKED` policy, approval lifecycle models, bearer token authentication, and RBAC authorization (`OWNER`, `OPERATOR`, `AUDITOR`, `READ_ONLY`).
 - `app/storage`: local SQLite repository with WAL mode for durable audit events, one-time approvals, and agent session state.
 - `app/memory`: non-persistent memory protocol and in-memory reference implementation.
@@ -47,17 +48,37 @@ Every mutating tool enforces `PermissionLevel.CONFIRM`, requires explicit one-ti
 6. `desktop_window_state`: Safely minimize, maximize, or restore an existing top-level application window with post-action window placement verification. Application termination or closing is blocked.
 7. `desktop_window_move_resize`: Safely move and/or resize an existing top-level window within monitor work areas. Enforces minimum dimensions (200x150) and clamps coordinates to display bounds to prevent off-screen window loss.
 
-## What JARVIS Cannot Do Yet (Security Restrictions)
+### Controlled Desktop Input Actions (Phase 10B)
+8. `desktop_mouse_move`: Safely move mouse cursor to validated screen coordinates with display work area bounds clamping and post-action cursor position verification. Unbounded coordinates, negative coordinates outside multi-monitor geometry, and non-integer values are rejected.
+9. `desktop_mouse_click`: Safely execute a mouse click (`left_click`, `right_click`, or `double_left_click`) at validated coordinates or current cursor position with post-action verification. Unsupported click types (middle clicks, arbitrary drags) are rejected.
+10. `desktop_keyboard_type`: Type non-sensitive text into the currently active top-level desktop window. Enforces a maximum length limit of 500 characters, rejects null bytes and control characters, blocks sensitive credentials/tokens/passwords, never reads the clipboard or environment variables, and minimizes audit metadata to text length rather than raw text.
+11. `desktop_hotkey`: Trigger an allowlisted safe keyboard shortcut (`CTRL+C`, `CTRL+V`, `CTRL+X`, `CTRL+A`, `CTRL+Z`, `CTRL+Y`, `CTRL+S`, `CTRL+F`, `ALT+TAB`, `ESC`, `ENTER`, `BACKSPACE`, `TAB`, `SPACE`, `DELETE`, `UP`, `DOWN`, `LEFT`, `RIGHT`, `PAGEUP`, `PAGEDOWN`, `HOME`, `END`). Destructive combinations (`CTRL+ALT+DELETE`, `ALT+F4`, `CTRL+SHIFT+ESC`, `WIN+L`, etc.) and arbitrary unallowlisted key combinations are strictly rejected via schema validation.
 
-The following capabilities are strictly forbidden and out of scope in Phase 10A:
-- Synthetic mouse movement or screen clicking (Phase 10B)
-- Synthetic keyboard typing or hotkey injection (Phase 10B)
+## Stage 10B Security Boundaries & Verification Scope
+
+All Stage 10B input tools operate under strict security boundaries:
+- **PermissionLevel**: Strictly enforced at `PermissionLevel.CONFIRM`. No capability can be downgraded to `SAFE`.
+- **Approvals**: Cryptographically bound one-time approvals via canonical JSON SHA-256 digests. Reuse, parameter alteration, and expired approvals are strictly rejected.
+- **RBAC**: Enforced via API bearer tokens. `OWNER` and `OPERATOR` can execute with valid approval; `AUDITOR` and `READ_ONLY` are strictly forbidden (HTTP 403).
+- **Data Minimization**: Keystroke text is not written into audit logs; audit events record only operation metadata and text length.
+- **Credential Protection**: The input layer cannot read clipboard contents, extract passwords, or read environment variables.
+- **Verification Limitations**: Mouse operations verify final cursor coordinates via OS-level `GetCursorPos`. Keyboard typing and hotkey actions verify successful event insertion into the OS input queue and active window focus stability; internal character processing by target applications is not fabricated or guaranteed.
+
+## What JARVIS Cannot Do Yet (Deferred Capabilities & Security Restrictions)
+
+The following capabilities are strictly forbidden and out of scope in Phase 10B:
+- Screen capture, visual targeting, vision models, or OCR (Phase 10C - NOT implemented)
+- Autonomous multi-step computer control workflows (NOT implemented)
+- Mouse drag-and-drop, button holding, or arbitrary mouse-down duration (Deferred)
+- Uncontrolled scrolling or mouse wheel automation (Deferred)
+- Arbitrary key combination generation or unallowlisted hotkeys (Prohibited)
+- Destructive system hotkeys (`CTRL+ALT+DELETE`, `ALT+F4`, task manager shortcuts, shutdown shortcuts)
 - Application closing, process killing, or task termination
 - Arbitrary JavaScript execution or script injection (`eval`, `evaluate`, `execute_script`)
-- Screen-coordinate or blind clicking
 - Screen recording, pixel capture, or OCR
 - Cookie, local storage, session storage, or password extraction
 - Entering passwords, API keys, or authentication tokens into input fields
+- Reading clipboard contents automatically or extracting credentials
 - Arbitrary shell or subprocess execution (`cmd`, PowerShell, bash)
 - Filesystem creation, modification, or deletion
 - Financial transactions, orders, or sending emails
