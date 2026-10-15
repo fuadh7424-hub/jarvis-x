@@ -22,6 +22,7 @@ from app.tools.desktop_hotkey import DesktopHotkeyTool
 from app.tools.desktop_keyboard_type import DesktopKeyboardTypeTool
 from app.tools.desktop_mouse_click import DesktopMouseClickTool
 from app.tools.desktop_mouse_move import DesktopMouseMoveTool
+from app.tools.desktop_screen_capture import DesktopScreenCaptureTool
 from app.tools.desktop_window_focus import DesktopWindowFocusTool
 from app.tools.desktop_window_move_resize import DesktopWindowMoveResizeTool
 from app.tools.desktop_window_state import DesktopWindowStateTool
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     registry.register(DesktopMouseClickTool())
     registry.register(DesktopKeyboardTypeTool())
     registry.register(DesktopHotkeyTool())
+    registry.register(DesktopScreenCaptureTool())
     app.state.executor = Executor(registry, SQLiteRepository(settings.database_path), approval_ttl_seconds=settings.approval_ttl_seconds)
     app.state.authenticator = BearerTokenAuthenticator(settings.auth_tokens)
     app.state.agent = Agent(app.state.executor)

@@ -54,20 +54,24 @@ Every mutating tool enforces `PermissionLevel.CONFIRM`, requires explicit one-ti
 10. `desktop_keyboard_type`: Type non-sensitive text into the currently active top-level desktop window. Enforces a maximum length limit of 500 characters, rejects null bytes and control characters, blocks sensitive credentials/tokens/passwords, never reads the clipboard or environment variables, and minimizes audit metadata to text length rather than raw text.
 11. `desktop_hotkey`: Trigger an allowlisted safe keyboard shortcut (`CTRL+C`, `CTRL+V`, `CTRL+X`, `CTRL+A`, `CTRL+Z`, `CTRL+Y`, `CTRL+S`, `CTRL+F`, `ALT+TAB`, `ESC`, `ENTER`, `BACKSPACE`, `TAB`, `SPACE`, `DELETE`, `UP`, `DOWN`, `LEFT`, `RIGHT`, `PAGEUP`, `PAGEDOWN`, `HOME`, `END`). Destructive combinations (`CTRL+ALT+DELETE`, `ALT+F4`, `CTRL+SHIFT+ESC`, `WIN+L`, etc.) and arbitrary unallowlisted key combinations are strictly rejected via schema validation.
 
-## Stage 10B Security Boundaries & Verification Scope
+### Secure Screen Awareness Actions (Phase 10C)
+12. `desktop_screen_capture`: Safely capture screen image metadata and visual state. Requires explicit user confirmation (`PermissionLevel.CONFIRM`). Supports capturing the primary display, a specified validated display monitor (e.g. `display-1`), or all displays spanned together. Returns structured, safe metadata (dimensions, format, timestamp, size). Keeps screenshots in memory or controlled temporary paths outside repository tracking with automatic cleanup. Pixels and base64 payloads are strictly excluded from audit logs.
 
-All Stage 10B input tools operate under strict security boundaries:
-- **PermissionLevel**: Strictly enforced at `PermissionLevel.CONFIRM`. No capability can be downgraded to `SAFE`.
-- **Approvals**: Cryptographically bound one-time approvals via canonical JSON SHA-256 digests. Reuse, parameter alteration, and expired approvals are strictly rejected.
-- **RBAC**: Enforced via API bearer tokens. `OWNER` and `OPERATOR` can execute with valid approval; `AUDITOR` and `READ_ONLY` are strictly forbidden (HTTP 403).
-- **Data Minimization**: Keystroke text is not written into audit logs; audit events record only operation metadata and text length.
-- **Credential Protection**: The input layer cannot read clipboard contents, extract passwords, or read environment variables.
-- **Verification Limitations**: Mouse operations verify final cursor coordinates via OS-level `GetCursorPos`. Keyboard typing and hotkey actions verify successful event insertion into the OS input queue and active window focus stability; internal character processing by target applications is not fabricated or guaranteed.
+## Stage 10C Security Boundaries & Verification Scope
+
+All Stage 10C screen awareness tools operate under strict security boundaries:
+- **PermissionLevel**: Strictly enforced at `PermissionLevel.CONFIRM`. Screen capture cannot execute without explicit one-time user approval.
+- **Data Minimization**: Screenshot pixels and base64 buffers are never written into audit logs. Audit events record only operation metadata, timestamps, and outcomes.
+- **Controlled Storage**: Screenshots are never placed in Git-tracked directories. Temporary image files are stored in a controlled temporary folder with explicit disposal APIs. No permanent archives are created.
+- **No Autonomous Targeting**: Screen capture is strictly an observation capability. Autonomous visual clicking, visual targeting, and OCR-driven actions are forbidden.
+- **Provider Isolation**: Native screen capture is encapsulated behind `ScreenCaptureProvider`. Future OCR and vision capabilities are abstracted (`OCRProvider`, `VisionProvider`) without automatic external AI transmissions.
 
 ## What JARVIS Cannot Do Yet (Deferred Capabilities & Security Restrictions)
 
-The following capabilities are strictly forbidden and out of scope in Phase 10B:
-- Screen capture, visual targeting, vision models, or OCR (Phase 10C - NOT implemented)
+The following capabilities are strictly forbidden and out of scope in Phase 10C:
+- Autonomous visual clicking or targeting (Phase 10D - NOT implemented)
+- Autonomous mouse targeting or OCR-driven clicking
+- Automatic transmission or streaming of screenshots to external AI providers
 - Autonomous multi-step computer control workflows (NOT implemented)
 - Mouse drag-and-drop, button holding, or arbitrary mouse-down duration (Deferred)
 - Uncontrolled scrolling or mouse wheel automation (Deferred)
@@ -75,7 +79,7 @@ The following capabilities are strictly forbidden and out of scope in Phase 10B:
 - Destructive system hotkeys (`CTRL+ALT+DELETE`, `ALT+F4`, task manager shortcuts, shutdown shortcuts)
 - Application closing, process killing, or task termination
 - Arbitrary JavaScript execution or script injection (`eval`, `evaluate`, `execute_script`)
-- Screen recording, pixel capture, or OCR
+- Continuous screen recording or video capture
 - Cookie, local storage, session storage, or password extraction
 - Entering passwords, API keys, or authentication tokens into input fields
 - Reading clipboard contents automatically or extracting credentials
